@@ -1035,6 +1035,11 @@ if(CONFIG_IDF_TARGET_ESP32S3)
 endif()
 
 set(MAIN_PRIV_REQUIRES_EXTRA "")
+if(BOARD_TYPE STREQUAL "freenove-esp32s3-display-2.8-lcd")
+    list(APPEND MAIN_PRIV_REQUIRES_EXTRA
+        esp_http_client
+    )
+endif()
 if(BOARD_TYPE STREQUAL "m5stack-stick-s3")
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA
         m5stack__m5pm1
