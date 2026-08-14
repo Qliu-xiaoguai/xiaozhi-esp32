@@ -1,6 +1,6 @@
 #include "freenove_lcd_display.h"
 #include "config.h"
-#include "display/lvgl_theme.h"
+#include "display/lvgl_display/lvgl_theme.h"
 
 #include <esp_http_client.h>
 #include <cJSON.h>
