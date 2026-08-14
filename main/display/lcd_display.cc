@@ -428,6 +428,11 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(battery_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_margin_left(battery_label_, lvgl_theme->spacing(2), 0);
 
+    battery_percent_label_ = lv_label_create(right_icons);
+    lv_label_set_text(battery_percent_label_, "");
+    lv_obj_set_style_text_font(battery_percent_label_, text_font, 0);
+    lv_obj_set_style_text_color(battery_percent_label_, lvgl_theme->text_color(), 0);
+
     /* Layer 2: Status bar - for center text labels */
     status_bar_ = lv_obj_create(screen);
     lv_obj_set_size(status_bar_, LV_HOR_RES, LV_SIZE_CONTENT);
@@ -915,6 +920,11 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(battery_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_margin_left(battery_label_, lvgl_theme->spacing(2), 0);
 
+    battery_percent_label_ = lv_label_create(right_icons);
+    lv_label_set_text(battery_percent_label_, "");
+    lv_obj_set_style_text_font(battery_percent_label_, text_font, 0);
+    lv_obj_set_style_text_color(battery_percent_label_, lvgl_theme->text_color(), 0);
+
     /* Layer 2: Status bar - for center text labels */
     status_bar_ = lv_obj_create(screen);
     lv_obj_set_size(status_bar_, LV_HOR_RES, LV_SIZE_CONTENT);
@@ -1232,6 +1242,7 @@ void LcdDisplay::SetTheme(Theme* theme) {
     lv_obj_set_style_text_color(notification_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_text_color(mute_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_text_color(battery_label_, lvgl_theme->text_color(), 0);
+    lv_obj_set_style_text_color(battery_percent_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_text_color(emoji_label_, lvgl_theme->text_color(), 0);
 
     // If we have the chat message style, update all message bubbles
