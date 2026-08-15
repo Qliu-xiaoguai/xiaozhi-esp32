@@ -122,3 +122,4 @@ void FreenoveLcdDisplay::UpdateBalanceLabel() {
     DisplayLockGuard lock(this);
     lv_label_set_text(balance_label_, balance_text_.c_str());
 }
+// single-board trigger: freenove only
