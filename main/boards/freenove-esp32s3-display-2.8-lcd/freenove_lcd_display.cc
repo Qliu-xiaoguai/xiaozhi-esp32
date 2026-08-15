@@ -44,7 +44,7 @@ void FreenoveLcdDisplay::SetupUI() {
     lv_obj_align(balance_label_, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
 
     running_ = true;
-    xTaskCreate(PollTaskEntry, "balance_poll", 4096, this, 3, &poll_task_);
+    xTaskCreate(PollTaskEntry, "balance_poll", 8192, this, 3, &poll_task_);
 }
 
 void FreenoveLcdDisplay::SetTheme(Theme* theme) {
