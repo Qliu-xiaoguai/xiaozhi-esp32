@@ -1,6 +1,8 @@
 #pragma once
 
 #include "display/lcd_display.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <string>
 
 class FreenoveLcdDisplay : public SpiLcdDisplay {
