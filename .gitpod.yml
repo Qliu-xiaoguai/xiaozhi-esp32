@@ -1,0 +1,16 @@
+# Gitpod 配置：浏览器里直接编译 XiaoZhi ESP32 固件
+# 打开方式: https://gitpod.io/#https://github.com/Qliu-xiaoguai/xiaozhi-esp32
+image:
+  file: .gitpod.Dockerfile
+
+tasks:
+  - name: ESP-IDF 编译环境
+    before: |
+      . $IDF_PATH/export.sh
+      echo "✅ ESP-IDF $(idf.py --version | head -1) 就绪"
+    command: |
+      echo "=============================================="
+      echo "编译 freenove 板子固件:"
+      echo "  python scripts/build.py freenove-esp32s3-display-2.8-lcd --name freenove-esp32s3-display-2.8-lcd"
+      echo "产物: build/merged-binary.bin (网页里可直接下载)"
+      echo "=============================================="
