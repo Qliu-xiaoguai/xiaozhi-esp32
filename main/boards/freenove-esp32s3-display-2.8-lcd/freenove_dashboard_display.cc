@@ -380,7 +380,7 @@ void FreenoveDashboardDisplay::UpdateStatusBar(bool update_all) {
                     MATERIAL_SYMBOLS_BATTERY_ANDROID_FRAME_4,
                     MATERIAL_SYMBOLS_BATTERY_ANDROID_FRAME_5,
                     MATERIAL_SYMBOLS_BATTERY_ANDROID_FRAME_6,
-                    MATERIAL_SYMBOLS_BATTERY_ANDROID_FULL,
+                    MATERIAL_SYMBOLS_BATTERY_ANDROID_FRAME_FULL,
                 };
                 int idx = battery_level <= 0 ? 0 : (battery_level >= 100 ? 7 : 1 + ((battery_level - 1) * 6 / 99));
                 lv_label_set_text(battery_label_, levels[idx]);
