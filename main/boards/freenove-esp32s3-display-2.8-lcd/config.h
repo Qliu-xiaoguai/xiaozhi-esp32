@@ -51,5 +51,7 @@
 #define DISPLAY_SPI_MODE      0
 
 #define BALANCE_API_URL       "http://123.56.167.206:8003/balance"
+#define SERVER_MONITOR_URL    "http://123.56.167.206:8003/device/dashboard"
+#define WEATHER_API_URL       "http://123.56.167.206:8003/device/weather"
 
 #endif  // _BOARD_CONFIG_H_

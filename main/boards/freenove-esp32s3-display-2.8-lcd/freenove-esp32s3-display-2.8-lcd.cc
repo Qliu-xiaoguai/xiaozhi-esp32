@@ -5,7 +5,7 @@
 #include <wifi_station.h>
 #include "wifi_board.h"
 #include "codecs/es8311_audio_codec.h"
-#include "display/lcd_display.h"
+#include "freenove_dashboard_display.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
@@ -63,7 +63,7 @@ private:
 class FreenoveESP32S3Display : public WifiBoard {
 private:
     Button boot_button_;
-    SpiLcdDisplay *display_;
+    FreenoveDashboardDisplay *display_;
     i2c_master_bus_handle_t codec_i2c_bus_;
     TouchDriver touch_;
     AdcBatteryMonitor* adc_battery_monitor_;
@@ -190,7 +190,7 @@ private:
         esp_lcd_panel_invert_color(panel, DISPLAY_INVERT_COLOR);
         esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
-        display_ = new SpiLcdDisplay(panel_io, panel,
+        display_ = new FreenoveDashboardDisplay(panel_io, panel,
             DISPLAY_WIDTH, DISPLAY_HEIGHT,
             DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y,
             DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
