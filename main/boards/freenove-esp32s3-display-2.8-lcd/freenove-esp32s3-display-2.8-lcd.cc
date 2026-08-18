@@ -4,7 +4,6 @@
 
 #include <wifi_station.h>
 #include "wifi_board.h"
-#include "codecs/es8311_audio_codec.h"
 #include "freenove_dashboard_display.h"
 #include "application.h"
 #include "button.h"
@@ -74,9 +73,7 @@ private:
 
     static void TouchTask(void *arg) {
         auto *self = static_cast<FreenoveESP32S3Display*>(arg);
-        auto &app = Application::GetInstance();
 
-        uint32_t last_tap = 0;
         uint32_t down_start = 0;
         bool down = false;
 
@@ -96,22 +93,9 @@ private:
 
             if (!t && down) {
                 down = false;
-
                 uint32_t press = now - down_start;
-
-                // long tap
                 if (press > 3000) {
                     self->EnterWifiConfigMode();
-                } else {
-                    // double tap
-                    if (now - last_tap < 250) {
-                        app.StartListening();
-                        last_tap = 0;
-                    } else {
-                        // single tap
-                        app.ToggleChatState();
-                        last_tap = now;
-                    }
                 }
             }
 
@@ -157,7 +141,6 @@ private:
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 EnterWifiConfigMode();
             }
-            app.ToggleChatState();
         });
     }
 
@@ -217,13 +200,7 @@ public:
         return &led;
     }
 
-    virtual AudioCodec* GetAudioCodec() override {
-        static Es8311AudioCodec audio_codec(codec_i2c_bus_, AUDIO_CODEC_I2C_NUM,
-            AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE, AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK,
-            AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN,
-            AUDIO_CODEC_ES8311_ADDR, true, true);
-        return &audio_codec;
-    }
+    virtual AudioCodec* GetAudioCodec() override { return nullptr; }
 
     virtual Display *GetDisplay() override { return display_; }
 
@@ -238,6 +215,9 @@ public:
         level = adc_battery_monitor_->GetBatteryLevel();
         return true;
     }
+
+    virtual bool HasAudio() override { return false; }
+    virtual bool HasProtocol() override { return false; }
 };
 
 DECLARE_BOARD(FreenoveESP32S3Display);

@@ -446,8 +446,11 @@ void FreenoveDashboardDisplay::PollTaskLoop() {
     vTaskDelay(pdMS_TO_TICKS(3000));
     while (running_) {
         if (WifiManager::GetInstance().IsConnected()) {
-            FetchWeather();
-            FetchServerData();
+            auto state = Application::GetInstance().GetDeviceState();
+            if (state != kDeviceStateUpgrading && state != kDeviceStateActivating) {
+                FetchWeather();
+                FetchServerData();
+            }
         }
         for (int i = 0; i < kPollIntervalMs / 200 && running_; ++i) {
             vTaskDelay(pdMS_TO_TICKS(200));
