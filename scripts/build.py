@@ -1704,6 +1704,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         idf_version = _detect_idf_version_for_listing()
         variants = _collect_variants(config_filename=args.config, idf_version=idf_version)
         selected = _select_variants_for_changes(variants, sys.stdin.read().splitlines())
+        # fork 专用：只编译 freenove-esp32s3-display-2.8-lcd 一块板子
+        selected = [v for v in selected if v.get("board") == "freenove-esp32s3-display-2.8-lcd"]
         print(json.dumps(selected))
         return
 
@@ -1772,6 +1774,8 @@ def main(argv: Optional[list[str]] = None) -> None:
             )
         idf_version = _detect_idf_version_for_listing()
         variants = _collect_variants(config_filename=args.config, idf_version=idf_version)
+        # fork 专用：只编译 freenove-esp32s3-display-2.8-lcd 一块板子
+        variants = [v for v in variants if v.get("board") == "freenove-esp32s3-display-2.8-lcd"]
         if args.json:
             print(json.dumps(variants))
         else:
@@ -1785,6 +1789,10 @@ def main(argv: Optional[list[str]] = None) -> None:
     board_type_input: str = args.board
     name_filter: Optional[str] = args.name
     idf_version = _detect_idf_version()
+    # fork 专用：只编译 freenove-esp32s3-display-2.8-lcd 一块板子，其余板子直接跳过
+    if board_type_input != "all" and board_type_input != "freenove-esp32s3-display-2.8-lcd":
+        print(f"skip non-freenove board: {board_type_input}")
+        sys.exit(0)
     if args.json:
         parser.error("--json is only valid when listing boards")
     if board_type_input == "all" and name_filter:

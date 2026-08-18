@@ -65,25 +65,27 @@ void Application::Initialize() {
     // Print board name/version info
     display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
 
-    // Setup the audio service
-    auto codec = board.GetAudioCodec();
-    audio_service_.Initialize(codec);
-    audio_service_.Start();
+    // Setup the audio service (skip if board has no audio hardware)
+    if (board.HasAudio()) {
+        auto codec = board.GetAudioCodec();
+        audio_service_.Initialize(codec);
+        audio_service_.Start();
 
-    AudioServiceCallbacks callbacks;
-    callbacks.on_send_queue_available = [this]() {
-        xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
-    };
-    callbacks.on_wake_word_detected = [this](const std::string& wake_word) {
-        xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
-    };
-    callbacks.on_vad_change = [this](bool speaking) {
-        xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
-    };
-    callbacks.on_playback_drained = [this]() {
-        xEventGroupSetBits(event_group_, MAIN_EVENT_PLAYBACK_DRAINED);
-    };
-    audio_service_.SetCallbacks(callbacks);
+        AudioServiceCallbacks callbacks;
+        callbacks.on_send_queue_available = [this]() {
+            xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
+        };
+        callbacks.on_wake_word_detected = [this](const std::string& wake_word) {
+            xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
+        };
+        callbacks.on_vad_change = [this](bool speaking) {
+            xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
+        };
+        callbacks.on_playback_drained = [this]() {
+            xEventGroupSetBits(event_group_, MAIN_EVENT_PLAYBACK_DRAINED);
+        };
+        audio_service_.SetCallbacks(callbacks);
+    }
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
@@ -302,8 +304,9 @@ void Application::HandleNetworkConnectedEvent() {
 void Application::HandleNetworkDisconnectedEvent() {
     // Close current conversation when network disconnected
     auto state = GetDeviceState();
-    if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
-        state == kDeviceStateSpeaking) {
+    if (protocol_ &&
+        (state == kDeviceStateConnecting || state == kDeviceStateListening ||
+         state == kDeviceStateSpeaking)) {
         ESP_LOGI(TAG, "Closing audio channel due to network disconnection");
         protocol_->CloseAudioChannel();
     }
@@ -332,8 +335,9 @@ void Application::HandleActivationDoneEvent() {
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
 
     Schedule([this]() {
-        // Play the success sound to indicate the device is ready
-        audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+        if (Board::GetInstance().HasAudio()) {
+            audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+        }
     });
 }
 
@@ -347,8 +351,11 @@ void Application::ActivationTask() {
     // Check for new firmware version
     CheckNewVersion();
 
-    // Initialize the protocol
-    InitializeProtocol();
+    // Initialize the protocol (skip if board doesn't support AI protocol)
+    auto& board = Board::GetInstance();
+    if (board.HasProtocol()) {
+        InitializeProtocol();
+    }
 
     // Signal completion to main loop
     xEventGroupSetBits(event_group_, MAIN_EVENT_ACTIVATION_DONE);
@@ -694,7 +701,7 @@ void Application::Alert(const char* status, const char* message, const char* emo
     display->SetStatus(status);
     display->SetEmotion(emotion);
     display->SetChatMessage("system", message);
-    if (!sound.empty()) {
+    if (!sound.empty() && Board::GetInstance().HasAudio()) {
         audio_service_.PlaySound(sound);
     }
 }
@@ -721,11 +728,15 @@ void Application::HandleToggleChatEvent() {
         SetDeviceState(kDeviceStateIdle);
         return;
     } else if (state == kDeviceStateWifiConfiguring) {
-        audio_service_.EnableAudioTesting(true);
-        SetDeviceState(kDeviceStateAudioTesting);
+        if (Board::GetInstance().HasAudio()) {
+            audio_service_.EnableAudioTesting(true);
+            SetDeviceState(kDeviceStateAudioTesting);
+        }
         return;
     } else if (state == kDeviceStateAudioTesting) {
-        audio_service_.EnableAudioTesting(false);
+        if (Board::GetInstance().HasAudio()) {
+            audio_service_.EnableAudioTesting(false);
+        }
         SetDeviceState(kDeviceStateWifiConfiguring);
         return;
     }
@@ -1041,7 +1052,9 @@ void Application::Reboot() {
         protocol_->CloseAudioChannel();
     }
     protocol_.reset();
-    audio_service_.Stop();
+    if (Board::GetInstance().HasAudio()) {
+        audio_service_.Stop();
+    }
 
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
@@ -1071,7 +1084,9 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     display->SetChatMessage("system", message.c_str());
 
     board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
-    audio_service_.Stop();
+    if (board.HasAudio()) {
+        audio_service_.Stop();
+    }
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     bool upgrade_success = Ota::Upgrade(upgrade_url, [this, display](int progress, size_t speed) {
@@ -1086,7 +1101,9 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         // Upgrade failed, restart audio service and continue running
         ESP_LOGE(TAG,
                  "Firmware upgrade failed, restarting audio service and continuing operation...");
-        audio_service_.Start();                              // Restart audio service
+        if (board.HasAudio()) {
+            audio_service_.Start();
+        }
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);  // Restore power save level
         Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "cancel",
               Lang::Sounds::OGG_EXCLAMATION);
@@ -1188,7 +1205,11 @@ void Application::SetAecMode(AecMode mode) {
     });
 }
 
-void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
+void Application::PlaySound(const std::string_view& sound) {
+    if (Board::GetInstance().HasAudio()) {
+        audio_service_.PlaySound(sound);
+    }
+}
 
 void Application::ResetProtocol() {
     Schedule([this]() {
