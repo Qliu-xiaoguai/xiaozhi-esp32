@@ -1789,6 +1789,10 @@ def main(argv: Optional[list[str]] = None) -> None:
     board_type_input: str = args.board
     name_filter: Optional[str] = args.name
     idf_version = _detect_idf_version()
+    # fork 专用：只编译 freenove-esp32s3-display-2.8-lcd 一块板子，其余板子直接跳过
+    if board_type_input != "all" and board_type_input != "freenove-esp32s3-display-2.8-lcd":
+        print(f"skip non-freenove board: {board_type_input}")
+        sys.exit(0)
     if args.json:
         parser.error("--json is only valid when listing boards")
     if board_type_input == "all" and name_filter:
