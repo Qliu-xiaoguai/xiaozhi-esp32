@@ -420,7 +420,7 @@ void FreenoveDashboardDisplay::UpdateStatusBar(bool update_all) {
         }
         // Date
         if (date_label_) {
-            char date_str[32];
+            char date_str[64];
             snprintf(date_str, sizeof(date_str), "%d年%d月%d日 星期%s",
                      tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
                      kDayNames[tm->tm_wday]);
@@ -467,7 +467,7 @@ void FreenoveDashboardDisplay::FetchWeather() {
 
     if (cJSON_IsNumber(temp) && cJSON_IsNumber(code)) {
         const char* desc = WeatherCodeToChinese(code->valueint);
-        char buf[64];
+        char buf[96];
         snprintf(buf, sizeof(buf), "%s %.0f°C", desc, temp->valuedouble);
 
         if (xSemaphoreTake(data_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -495,7 +495,7 @@ void FreenoveDashboardDisplay::FetchServerData() {
     cJSON* mem = cJSON_GetObjectItem(root, "memory");
     cJSON* uptime = cJSON_GetObjectItem(root, "uptime");
 
-    char buf[128];
+    char buf[196];
     if (cJSON_IsNumber(cpu) && cJSON_IsObject(mem)) {
         cJSON* mem_pct = cJSON_GetObjectItem(mem, "percent");
         if (cJSON_IsNumber(mem_pct)) {
