@@ -270,7 +270,7 @@ public:
         return true;
     }
 
-    // ===== 车机主页 + 服务器监控页（v2.5.3 延迟初始化版） =====
+    // ===== 车机主页 + 服务器监控页（v2.5.4 延迟初始化版） =====
     enum class UiMode { Home, Chat, Monitor };
     UiMode ui_mode_ = UiMode::Home;
     bool ui_ready_ = false;
@@ -303,7 +303,7 @@ public:
 
     void SetupLauncherUI() {
         if (display_ == nullptr) return;
-        auto theme = dynamic_cast<LvglTheme*>(display_->GetTheme());
+        auto theme = static_cast<LvglTheme*>(display_->GetTheme());
         if (theme == nullptr) return;
         auto font_sp = theme->text_font();
         if (font_sp == nullptr) return;
