@@ -436,7 +436,8 @@ public:
                         cJSON* v = cJSON_GetObjectItem(obj, key);
                         if (v && cJSON_IsNumber(v)) {
                             int pct = (int)v->valuedouble;
-                            if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+                            if (pct < 0) { pct = 0; }
+                            if (pct > 100) { pct = 100; }
                             lv_bar_set_value(mon_bars_[idx], pct, LV_ANIM_ON);
                             char buf[16];
                             snprintf(buf, sizeof(buf), "%d%%", pct);
@@ -492,5 +493,4 @@ public:
     }
 };
 
-DECLARE_BOARD(FreenoveESP32S3Display);
 DECLARE_BOARD(FreenoveESP32S3Display);
