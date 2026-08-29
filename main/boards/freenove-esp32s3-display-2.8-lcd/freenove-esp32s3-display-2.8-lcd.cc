@@ -267,8 +267,6 @@ public:
         level = adc_battery_monitor_->GetBatteryLevel();
         return true;
     }
-};
-
 
     // ===== 车机主页 + 服务器监控页（小番定制 v2.5.1） =====
     enum class UiMode { Home, Chat, Monitor };
@@ -488,5 +486,7 @@ public:
             ShowHome();
         }
     }
+
+};
 
 DECLARE_BOARD(FreenoveESP32S3Display);
