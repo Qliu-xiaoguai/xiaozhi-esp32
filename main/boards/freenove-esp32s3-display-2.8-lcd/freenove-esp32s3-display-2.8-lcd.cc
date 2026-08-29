@@ -23,6 +23,22 @@
 #include "system_reset.h"
 #include "esp_lcd_ili9341.h"
 
+
+#include <cJSON.h>
+#include "display/lvgl_display/lvgl_theme.h"
+
+#define LAUNCHER_TAG "Launcher"
+
+static void MapTouch(uint16_t tx, uint16_t ty, lv_coord_t& x, lv_coord_t& y) {
+    x = (lv_coord_t)ty;
+    y = (lv_coord_t)tx;
+}
+
+#define GRID_COLS 3
+#define GRID_ROWS 2
+#define ICON_W (320 / GRID_COLS)
+#define ICON_H (240 / GRID_ROWS)
+
 #define TAG "FreenoveESP32S3Display"
 
 class TouchDriver {
@@ -60,25 +76,6 @@ private:
     i2c_master_dev_handle_t dev_;
 };
 
-
-// ================= 车机主页 + 服务器监控页（小番定制 v2.5.1） =================
-#include <cJSON.h>
-#include "display/lvgl_display/lvgl_theme.h"
-
-#define LAUNCHER_TAG "Launcher"
-
-// 触摸坐标 -> 屏幕坐标映射（触摸芯片 240x320，屏幕逻辑 320x240 SWAP_XY）
-static void MapTouch(uint16_t tx, uint16_t ty, lv_coord_t& x, lv_coord_t& y) {
-    x = (lv_coord_t)ty;
-    y = (lv_coord_t)tx;
-}
-
-#define GRID_COLS 3
-#define GRID_ROWS 2
-#define ICON_W (320 / GRID_COLS)
-#define ICON_H (240 / GRID_ROWS)
-
-
 class FreenoveESP32S3Display : public WifiBoard {
 private:
     Button boot_button_;
@@ -87,25 +84,6 @@ private:
     TouchDriver touch_;
     AdcBatteryMonitor* adc_battery_monitor_;
 
-    // ===== 车机 UI =====
-    enum class UiMode { Home, Chat, Monitor };
-    UiMode ui_mode_ = UiMode::Home;
-    bool ui_ready_ = false;
-
-    lv_obj_t* home_layer_ = nullptr;
-    lv_obj_t* monitor_layer_ = nullptr;
-    lv_obj_t* mon_bars_[3] = {};
-    lv_obj_t* mon_labels_[3] = {};
-    lv_obj_t* mon_svc_label_ = nullptr;
-    lv_obj_t* mon_time_label_ = nullptr;
-
-    void SetupLauncherUI();
-    void ShowHome();
-    void ShowChat();
-    void ShowMonitor();
-    void RefreshMonitor();
-    void HandleHomeTap(lv_coord_t x, lv_coord_t y);
-    void HandleMonitorTap(lv_coord_t x, lv_coord_t y);
     void InitializeBatteryMonitor() {
         adc_battery_monitor_ = new AdcBatteryMonitor(ADC_UNIT_1, ADC_CHANNEL_8, 200000, 200000, GPIO_NUM_NC);
     }
@@ -172,7 +150,7 @@ private:
 
     void InitializeTouch() {
         if (!touch_.Init(codec_i2c_bus_, 0x38)) return;
-        xTaskCreatePinnedToCore(TouchTask, "touch_task", 8192, this, 5, nullptr, 0);
+        xTaskCreatePinnedToCore(TouchTask, "touch_task", 4096, this, 5, nullptr, 0);
     }
 
     void InitializeI2c() {
@@ -184,7 +162,9 @@ private:
             .glitch_ignore_cnt = 7,
             .intr_priority = 0,
             .trans_queue_depth = 0,
-            .flags = { .enable_internal_pullup = 1 },
+            .flags = {
+                .enable_internal_pullup = 1,
+            },
         };
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &codec_i2c_bus_));
     }
@@ -202,10 +182,9 @@ private:
 
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
-            auto& app = Application::GetInstance();
+            auto &app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 EnterWifiConfigMode();
-                return;
             }
             app.ToggleChatState();
         });
@@ -214,6 +193,8 @@ private:
     void InitializeLcdDisplay() {
         esp_lcd_panel_io_handle_t panel_io = nullptr;
         esp_lcd_panel_handle_t panel = nullptr;
+        // 液晶屏控制IO初始化
+        ESP_LOGD(TAG, "Install panel IO");
         esp_lcd_panel_io_spi_config_t io_config = {};
         io_config.cs_gpio_num = DISPLAY_CS_PIN;
         io_config.dc_gpio_num = DISPLAY_DC_PIN;
@@ -224,12 +205,16 @@ private:
         io_config.lcd_param_bits = 8;
         ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(LCD_SPI_HOST, &io_config, &panel_io));
 
+        // 初始化液晶屏驱动芯片
+        ESP_LOGD(TAG, "Install LCD driver");
         esp_lcd_panel_dev_config_t panel_config = {};
         panel_config.reset_gpio_num = DISPLAY_RST_PIN;
         panel_config.rgb_ele_order = DISPLAY_RGB_ORDER;
         panel_config.bits_per_pixel = 16;
         ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(panel_io, &panel_config, &panel));
+        ESP_LOGI(TAG, "Install LCD driver ILI9341");
         esp_lcd_panel_reset(panel);
+
         esp_lcd_panel_init(panel);
         esp_lcd_panel_invert_color(panel, DISPLAY_INVERT_COLOR);
         esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
@@ -240,7 +225,8 @@ private:
             DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 
-    void InitializeTools() {}
+    void InitializeTools() {
+    }
 
 public:
     FreenoveESP32S3Display(): boot_button_(BOOT_BUTTON_GPIO)
@@ -281,15 +267,27 @@ public:
         level = adc_battery_monitor_->GetBatteryLevel();
         return true;
     }
+};
 
-    // ===== 车机 UI 实现 =====
+
+    // ===== 车机主页 + 服务器监控页（小番定制 v2.5.1） =====
+    enum class UiMode { Home, Chat, Monitor };
+    UiMode ui_mode_ = UiMode::Home;
+    bool ui_ready_ = false;
+
+    lv_obj_t* home_layer_ = nullptr;
+    lv_obj_t* monitor_layer_ = nullptr;
+    lv_obj_t* mon_bars_[3] = {};
+    lv_obj_t* mon_labels_[3] = {};
+    lv_obj_t* mon_svc_label_ = nullptr;
+    lv_obj_t* mon_time_label_ = nullptr;
+
     void SetupLauncherUI() {
         auto theme = static_cast<LvglTheme*>(display_->GetTheme());
         if (theme == nullptr) return;
         auto text_font = theme->text_font()->font();
         auto screen = lv_screen_active();
 
-        // 主页层
         home_layer_ = lv_obj_create(screen);
         lv_obj_set_size(home_layer_, 320, 240);
         lv_obj_set_pos(home_layer_, 0, 0);
@@ -325,7 +323,6 @@ public:
             lv_obj_center(label);
         }
 
-        // 监控页层
         monitor_layer_ = lv_obj_create(screen);
         lv_obj_set_size(monitor_layer_, 320, 240);
         lv_obj_set_pos(monitor_layer_, 0, 0);
@@ -491,6 +488,5 @@ public:
             ShowHome();
         }
     }
-};
 
 DECLARE_BOARD(FreenoveESP32S3Display);
