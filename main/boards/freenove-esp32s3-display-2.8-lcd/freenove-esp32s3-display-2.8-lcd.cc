@@ -270,7 +270,7 @@ public:
         return true;
     }
 
-    // ===== 车机主页 + 服务器监控页（v2.5.4 延迟初始化版） =====
+    // ===== 车机主页 + 服务器监控页（v2.5.5 延迟初始化版） =====
     enum class UiMode { Home, Chat, Monitor };
     UiMode ui_mode_ = UiMode::Home;
     bool ui_ready_ = false;
@@ -281,6 +281,15 @@ public:
     lv_obj_t* mon_svc_label_ = nullptr;
     lv_obj_t* mon_time_label_ = nullptr;
 
+    static void LauncherTimerCb(lv_timer_t* timer) {
+        auto* self = static_cast<FreenoveESP32S3Display*>(lv_timer_get_user_data(timer));
+        lv_timer_delete(timer);
+        if (self == nullptr || self->ui_ready_) return;
+        self->SetupLauncherUI();
+        self->ui_ready_ = true;
+        ESP_LOGI(LAUNCHER_TAG, "Launcher UI ready");
+    }
+
     static void InitUiTask(void *arg) {
         auto *self = static_cast<FreenoveESP32S3Display*>(arg);
         // 等 SetupUI 完成（最多 10 秒）
@@ -288,16 +297,16 @@ public:
             if (self->display_ != nullptr && self->display_->IsSetupUICalled()) break;
             vTaskDelay(pdMS_TO_TICKS(200));
         }
-        // 关键：再等 20 秒，确保 WiFi 连接窗口完全结束、系统稳定后再建 UI
+        // 再等 20 秒避开 WiFi 窗口，然后注册一次性 lv_timer
+        // UI 构建在 LVGL 自己的线程里执行，避免跨线程崩溃
         vTaskDelay(pdMS_TO_TICKS(20000));
         if (self->ui_ready_ || self->display_ == nullptr) {
             vTaskDelete(NULL);
             return;
         }
         DisplayLockGuard lock(self->display_);
-        self->SetupLauncherUI();
-        self->ui_ready_ = true;
-        ESP_LOGI(LAUNCHER_TAG, "Launcher UI ready");
+        lv_timer_t* t = lv_timer_create(LauncherTimerCb, 100, self);
+        if (t != nullptr) lv_timer_set_repeat_count(t, 1);
         vTaskDelete(NULL);
     }
 
