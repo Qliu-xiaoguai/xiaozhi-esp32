@@ -118,12 +118,23 @@ private:
                     self->EnterWifiConfigMode();
                     continue;
                 }
-                lv_coord_t sx, sy;
-                MapTouch(down_x, down_y, sx, sy);
-                if (self->ui_mode_ == UiMode::Home && self->home_layer_ != nullptr) {
-                    self->HandleHomeTap(sx, sy);
-                } else if (self->ui_mode_ == UiMode::Monitor && self->monitor_layer_ != nullptr) {
-                    self->HandleMonitorTap(sx, sy);
+                // UI 就绪后才做主页/监控分发，否则保持原版单击/双击
+                if (self->ui_ready_) {
+                    lv_coord_t sx, sy;
+                    MapTouch(down_x, down_y, sx, sy);
+                    if (self->ui_mode_ == UiMode::Home) {
+                        self->HandleHomeTap(sx, sy);
+                    } else if (self->ui_mode_ == UiMode::Monitor) {
+                        self->HandleMonitorTap(sx, sy);
+                    } else {
+                        if (press < 250 && now - last_tap < 250) {
+                            app.StartListening();
+                            last_tap = 0;
+                        } else {
+                            app.ToggleChatState();
+                            last_tap = now;
+                        }
+                    }
                 } else {
                     if (press < 250 && now - last_tap < 250) {
                         app.StartListening();
@@ -259,7 +270,7 @@ public:
         return true;
     }
 
-    // ===== 车机主页 + 服务器监控页（v2.5.2 防御版） =====
+    // ===== 车机主页 + 服务器监控页（v2.5.3 延迟初始化版） =====
     enum class UiMode { Home, Chat, Monitor };
     UiMode ui_mode_ = UiMode::Home;
     bool ui_ready_ = false;
@@ -272,13 +283,13 @@ public:
 
     static void InitUiTask(void *arg) {
         auto *self = static_cast<FreenoveESP32S3Display*>(arg);
-        // 等待 SetupUI 完成
+        // 等 SetupUI 完成（最多 10 秒）
         for (int i = 0; i < 50; i++) {
             if (self->display_ != nullptr && self->display_->IsSetupUICalled()) break;
             vTaskDelay(pdMS_TO_TICKS(200));
         }
-        // 额外延迟 5 秒，确保 LVGL 完全就绪
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        // 关键：再等 20 秒，确保 WiFi 连接窗口完全结束、系统稳定后再建 UI
+        vTaskDelay(pdMS_TO_TICKS(20000));
         if (self->ui_ready_ || self->display_ == nullptr) {
             vTaskDelete(NULL);
             return;
@@ -300,7 +311,6 @@ public:
         auto screen = lv_screen_active();
         if (screen == nullptr) return;
 
-        // ---- 主页层 ----
         home_layer_ = lv_obj_create(screen);
         if (home_layer_ == nullptr) return;
         lv_obj_set_size(home_layer_, 320, 240);
@@ -346,7 +356,6 @@ public:
             }
         }
 
-        // ---- 监控页层（文本版，不用进度条控件，降低风险） ----
         monitor_layer_ = lv_obj_create(screen);
         if (monitor_layer_ == nullptr) return;
         lv_obj_set_size(monitor_layer_, 320, 240);
