@@ -98,16 +98,6 @@ private:
         uint16_t down_x = 0, down_y = 0;
 
         while (true) {
-            if (!self->ui_ready_) {
-                auto d = self->display_;
-                if (d && d->IsSetupUICalled()) {
-                    DisplayLockGuard lock(d);
-                    self->SetupLauncherUI();
-                    self->ui_ready_ = true;
-                    ESP_LOGI(LAUNCHER_TAG, "Launcher UI ready");
-                }
-            }
-
             bool t;
             uint16_t x, y;
             self->touch_.Read(t, x, y);
@@ -130,9 +120,9 @@ private:
                 }
                 lv_coord_t sx, sy;
                 MapTouch(down_x, down_y, sx, sy);
-                if (self->ui_mode_ == UiMode::Home) {
+                if (self->ui_mode_ == UiMode::Home && self->home_layer_ != nullptr) {
                     self->HandleHomeTap(sx, sy);
-                } else if (self->ui_mode_ == UiMode::Monitor) {
+                } else if (self->ui_mode_ == UiMode::Monitor && self->monitor_layer_ != nullptr) {
                     self->HandleMonitorTap(sx, sy);
                 } else {
                     if (press < 250 && now - last_tap < 250) {
@@ -150,7 +140,8 @@ private:
 
     void InitializeTouch() {
         if (!touch_.Init(codec_i2c_bus_, 0x38)) return;
-        xTaskCreatePinnedToCore(TouchTask, "touch_task", 4096, this, 5, nullptr, 0);
+        xTaskCreatePinnedToCore(TouchTask, "touch_task", 8192, this, 5, nullptr, 0);
+        xTaskCreatePinnedToCore(InitUiTask, "ui_task", 8192, this, 4, nullptr, 0);
     }
 
     void InitializeI2c() {
@@ -268,25 +259,50 @@ public:
         return true;
     }
 
-    // ===== 车机主页 + 服务器监控页（小番定制 v2.5.1） =====
+    // ===== 车机主页 + 服务器监控页（v2.5.2 防御版） =====
     enum class UiMode { Home, Chat, Monitor };
     UiMode ui_mode_ = UiMode::Home;
     bool ui_ready_ = false;
 
     lv_obj_t* home_layer_ = nullptr;
     lv_obj_t* monitor_layer_ = nullptr;
-    lv_obj_t* mon_bars_[3] = {};
     lv_obj_t* mon_labels_[3] = {};
     lv_obj_t* mon_svc_label_ = nullptr;
     lv_obj_t* mon_time_label_ = nullptr;
 
-    void SetupLauncherUI() {
-        auto theme = static_cast<LvglTheme*>(display_->GetTheme());
-        if (theme == nullptr) return;
-        auto text_font = theme->text_font()->font();
-        auto screen = lv_screen_active();
+    static void InitUiTask(void *arg) {
+        auto *self = static_cast<FreenoveESP32S3Display*>(arg);
+        // 等待 SetupUI 完成
+        for (int i = 0; i < 50; i++) {
+            if (self->display_ != nullptr && self->display_->IsSetupUICalled()) break;
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        // 额外延迟 5 秒，确保 LVGL 完全就绪
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        if (self->ui_ready_ || self->display_ == nullptr) {
+            vTaskDelete(NULL);
+            return;
+        }
+        DisplayLockGuard lock(self->display_);
+        self->SetupLauncherUI();
+        self->ui_ready_ = true;
+        ESP_LOGI(LAUNCHER_TAG, "Launcher UI ready");
+        vTaskDelete(NULL);
+    }
 
+    void SetupLauncherUI() {
+        if (display_ == nullptr) return;
+        auto theme = dynamic_cast<LvglTheme*>(display_->GetTheme());
+        if (theme == nullptr) return;
+        auto font_sp = theme->text_font();
+        if (font_sp == nullptr) return;
+        auto text_font = font_sp->font();
+        auto screen = lv_screen_active();
+        if (screen == nullptr) return;
+
+        // ---- 主页层 ----
         home_layer_ = lv_obj_create(screen);
+        if (home_layer_ == nullptr) return;
         lv_obj_set_size(home_layer_, 320, 240);
         lv_obj_set_pos(home_layer_, 0, 0);
         lv_obj_set_style_bg_color(home_layer_, lv_color_hex(0x101418), 0);
@@ -295,11 +311,15 @@ public:
         lv_obj_set_style_border_width(home_layer_, 0, 0);
         lv_obj_set_style_pad_all(home_layer_, 0, 0);
 
-        lv_obj_t* title = lv_label_create(home_layer_);
-        lv_label_set_text(title, "小番车机");
-        lv_obj_set_style_text_font(title, text_font, 0);
-        lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+        if (text_font != nullptr) {
+            lv_obj_t* title = lv_label_create(home_layer_);
+            if (title != nullptr) {
+                lv_label_set_text(title, "小番车机");
+                lv_obj_set_style_text_font(title, text_font, 0);
+                lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+                lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+            }
+        }
 
         const char* names[6] = {"语音助手", "服务器监控", "天气", "音乐", "新闻", "设置"};
         const uint32_t colors[6] = {0x2E7D32, 0x1565C0, 0xF9A825, 0x6A1B9A, 0xE65100, 0x455A64};
@@ -307,6 +327,7 @@ public:
             int col = i % GRID_COLS;
             int row = i / GRID_COLS;
             lv_obj_t* card = lv_obj_create(home_layer_);
+            if (card == nullptr) continue;
             lv_obj_set_size(card, ICON_W - 16, ICON_H - 20);
             lv_obj_set_pos(card, col * ICON_W + 8, row * ICON_H + 26);
             lv_obj_set_style_bg_color(card, lv_color_hex(colors[i]), 0);
@@ -314,14 +335,20 @@ public:
             lv_obj_set_style_radius(card, 12, 0);
             lv_obj_set_style_border_width(card, 0, 0);
             lv_obj_set_style_shadow_width(card, 0, 0);
-            lv_obj_t* label = lv_label_create(card);
-            lv_label_set_text(label, names[i]);
-            lv_obj_set_style_text_font(label, text_font, 0);
-            lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-            lv_obj_center(label);
+            if (text_font != nullptr) {
+                lv_obj_t* label = lv_label_create(card);
+                if (label != nullptr) {
+                    lv_label_set_text(label, names[i]);
+                    lv_obj_set_style_text_font(label, text_font, 0);
+                    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+                    lv_obj_center(label);
+                }
+            }
         }
 
+        // ---- 监控页层（文本版，不用进度条控件，降低风险） ----
         monitor_layer_ = lv_obj_create(screen);
+        if (monitor_layer_ == nullptr) return;
         lv_obj_set_size(monitor_layer_, 320, 240);
         lv_obj_set_pos(monitor_layer_, 0, 0);
         lv_obj_set_style_bg_color(monitor_layer_, lv_color_hex(0x0D1117), 0);
@@ -330,61 +357,56 @@ public:
         lv_obj_set_style_border_width(monitor_layer_, 0, 0);
         lv_obj_set_style_pad_all(monitor_layer_, 0, 0);
 
-        lv_obj_t* back = lv_obj_create(monitor_layer_);
-        lv_obj_set_size(back, 60, 36);
-        lv_obj_set_pos(back, 8, 8);
-        lv_obj_set_style_bg_color(back, lv_color_hex(0x30363D), 0);
-        lv_obj_set_style_radius(back, 8, 0);
-        lv_obj_set_style_border_width(back, 0, 0);
-        lv_obj_t* back_label = lv_label_create(back);
-        lv_label_set_text(back_label, "<- 返回");
-        lv_obj_set_style_text_font(back_label, text_font, 0);
-        lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_center(back_label);
-
-        lv_obj_t* mtitle = lv_label_create(monitor_layer_);
-        lv_label_set_text(mtitle, "服务器监控");
-        lv_obj_set_style_text_font(mtitle, text_font, 0);
-        lv_obj_set_style_text_color(mtitle, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_align(mtitle, LV_ALIGN_TOP_MID, 0, 14);
-
-        const char* inames[3] = {"CPU", "内存", "磁盘"};
-        for (int i = 0; i < 3; i++) {
-            int y = 60 + i * 46;
-            lv_obj_t* name_l = lv_label_create(monitor_layer_);
-            lv_label_set_text(name_l, inames[i]);
-            lv_obj_set_style_text_font(name_l, text_font, 0);
-            lv_obj_set_style_text_color(name_l, lv_color_hex(0x9DA5B1), 0);
-            lv_obj_set_pos(name_l, 20, y);
-
-            lv_obj_t* bar = lv_bar_create(monitor_layer_);
-            lv_obj_set_size(bar, 200, 14);
-            lv_obj_set_pos(bar, 20, y + 20);
-            lv_bar_set_range(bar, 0, 100);
-            lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-            lv_obj_set_style_bg_color(bar, lv_color_hex(0x21262D), LV_PART_MAIN);
-            lv_obj_set_style_bg_color(bar, lv_color_hex(0x2F81F7), LV_PART_INDICATOR);
-            mon_bars_[i] = bar;
-
-            lv_obj_t* val_l = lv_label_create(monitor_layer_);
-            lv_label_set_text(val_l, "--%");
-            lv_obj_set_style_text_font(val_l, text_font, 0);
-            lv_obj_set_style_text_color(val_l, lv_color_hex(0xFFFFFF), 0);
-            lv_obj_set_pos(val_l, 240, y + 14);
-            mon_labels_[i] = val_l;
+        if (text_font != nullptr) {
+            lv_obj_t* back = lv_obj_create(monitor_layer_);
+            if (back != nullptr) {
+                lv_obj_set_size(back, 60, 36);
+                lv_obj_set_pos(back, 8, 8);
+                lv_obj_set_style_bg_color(back, lv_color_hex(0x30363D), 0);
+                lv_obj_set_style_radius(back, 8, 0);
+                lv_obj_set_style_border_width(back, 0, 0);
+                lv_obj_t* bl = lv_label_create(back);
+                if (bl != nullptr) {
+                    lv_label_set_text(bl, "<- 返回");
+                    lv_obj_set_style_text_font(bl, text_font, 0);
+                    lv_obj_set_style_text_color(bl, lv_color_hex(0xFFFFFF), 0);
+                    lv_obj_center(bl);
+                }
+            }
+            lv_obj_t* mtitle = lv_label_create(monitor_layer_);
+            if (mtitle != nullptr) {
+                lv_label_set_text(mtitle, "服务器监控");
+                lv_obj_set_style_text_font(mtitle, text_font, 0);
+                lv_obj_set_style_text_color(mtitle, lv_color_hex(0xFFFFFF), 0);
+                lv_obj_align(mtitle, LV_ALIGN_TOP_MID, 0, 14);
+            }
+            const char* inames[3] = {"CPU", "内存", "磁盘"};
+            for (int i = 0; i < 3; i++) {
+                lv_obj_t* l = lv_label_create(monitor_layer_);
+                if (l == nullptr) continue;
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%s: --", inames[i]);
+                lv_label_set_text(l, buf);
+                lv_obj_set_style_text_font(l, text_font, 0);
+                lv_obj_set_style_text_color(l, lv_color_hex(0x9DA5B1), 0);
+                lv_obj_set_pos(l, 20, 60 + i * 40);
+                mon_labels_[i] = l;
+            }
+            mon_svc_label_ = lv_label_create(monitor_layer_);
+            if (mon_svc_label_ != nullptr) {
+                lv_label_set_text(mon_svc_label_, "服务: --");
+                lv_obj_set_style_text_font(mon_svc_label_, text_font, 0);
+                lv_obj_set_style_text_color(mon_svc_label_, lv_color_hex(0x9DA5B1), 0);
+                lv_obj_set_pos(mon_svc_label_, 20, 190);
+            }
+            mon_time_label_ = lv_label_create(monitor_layer_);
+            if (mon_time_label_ != nullptr) {
+                lv_label_set_text(mon_time_label_, "刷新: --");
+                lv_obj_set_style_text_font(mon_time_label_, text_font, 0);
+                lv_obj_set_style_text_color(mon_time_label_, lv_color_hex(0x9DA5B1), 0);
+                lv_obj_set_pos(mon_time_label_, 20, 215);
+            }
         }
-
-        mon_svc_label_ = lv_label_create(monitor_layer_);
-        lv_label_set_text(mon_svc_label_, "服务: --");
-        lv_obj_set_style_text_font(mon_svc_label_, text_font, 0);
-        lv_obj_set_style_text_color(mon_svc_label_, lv_color_hex(0x9DA5B1), 0);
-        lv_obj_set_pos(mon_svc_label_, 20, 205);
-
-        mon_time_label_ = lv_label_create(monitor_layer_);
-        lv_label_set_text(mon_time_label_, "刷新: --");
-        lv_obj_set_style_text_font(mon_time_label_, text_font, 0);
-        lv_obj_set_style_text_color(mon_time_label_, lv_color_hex(0x9DA5B1), 0);
-        lv_obj_set_pos(mon_time_label_, 20, 222);
 
         lv_obj_add_flag(monitor_layer_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(home_layer_);
@@ -392,23 +414,26 @@ public:
     }
 
     void ShowHome() {
-        if (home_layer_) { lv_obj_remove_flag(home_layer_, LV_OBJ_FLAG_HIDDEN); lv_obj_move_foreground(home_layer_); }
-        if (monitor_layer_) lv_obj_add_flag(monitor_layer_, LV_OBJ_FLAG_HIDDEN);
+        if (home_layer_ == nullptr) return;
+        DisplayLockGuard lock(display_);
+        lv_obj_remove_flag(home_layer_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(home_layer_);
+        if (monitor_layer_ != nullptr) lv_obj_add_flag(monitor_layer_, LV_OBJ_FLAG_HIDDEN);
         ui_mode_ = UiMode::Home;
     }
 
     void ShowChat() {
-        if (home_layer_) lv_obj_add_flag(home_layer_, LV_OBJ_FLAG_HIDDEN);
-        if (monitor_layer_) lv_obj_add_flag(monitor_layer_, LV_OBJ_FLAG_HIDDEN);
+        if (home_layer_ != nullptr) lv_obj_add_flag(home_layer_, LV_OBJ_FLAG_HIDDEN);
+        if (monitor_layer_ != nullptr) lv_obj_add_flag(monitor_layer_, LV_OBJ_FLAG_HIDDEN);
         ui_mode_ = UiMode::Chat;
     }
 
     void ShowMonitor() {
-        if (home_layer_) lv_obj_add_flag(home_layer_, LV_OBJ_FLAG_HIDDEN);
-        if (monitor_layer_) {
-            lv_obj_remove_flag(monitor_layer_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_move_foreground(monitor_layer_);
-        }
+        if (monitor_layer_ == nullptr) return;
+        DisplayLockGuard lock(display_);
+        if (home_layer_ != nullptr) lv_obj_add_flag(home_layer_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(monitor_layer_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(monitor_layer_);
         ui_mode_ = UiMode::Monitor;
         RefreshMonitor();
     }
@@ -425,25 +450,20 @@ public:
                 std::string body = http->ReadAll();
                 http->Close();
                 cJSON* root = cJSON_Parse(body.c_str());
-                if (root) {
+                if (root != nullptr) {
                     DisplayLockGuard lock(display_);
-                    auto set_bar = [&](int idx, cJSON* obj, const char* key) {
-                        cJSON* v = cJSON_GetObjectItem(obj, key);
-                        if (v && cJSON_IsNumber(v)) {
-                            int pct = (int)v->valuedouble;
-                            if (pct < 0) { pct = 0; }
-                            if (pct > 100) { pct = 100; }
-                            lv_bar_set_value(mon_bars_[idx], pct, LV_ANIM_ON);
-                            char buf[16];
-                            snprintf(buf, sizeof(buf), "%d%%", pct);
-                            lv_label_set_text(mon_labels_[idx], buf);
+                    const char* keys[3] = {"cpu", "mem_pct", "disk_pct"};
+                    const char* names[3] = {"CPU", "内存", "磁盘"};
+                    for (int i = 0; i < 3; i++) {
+                        cJSON* v = cJSON_GetObjectItem(root, keys[i]);
+                        if (v != nullptr && cJSON_IsNumber(v) && mon_labels_[i] != nullptr) {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "%s: %d%%", names[i], (int)v->valuedouble);
+                            lv_label_set_text(mon_labels_[i], buf);
                         }
-                    };
-                    set_bar(0, root, "cpu");
-                    set_bar(1, root, "mem_pct");
-                    set_bar(2, root, "disk_pct");
+                    }
                     cJSON* svc = cJSON_GetObjectItem(root, "services");
-                    if (svc && cJSON_IsObject(svc)) {
+                    if (svc != nullptr && mon_svc_label_ != nullptr) {
                         std::string s = "服务: ";
                         cJSON* xz = cJSON_GetObjectItem(svc, "xiaozhi");
                         cJSON* oc = cJSON_GetObjectItem(svc, "openclaw");
@@ -452,7 +472,7 @@ public:
                         lv_label_set_text(mon_svc_label_, s.c_str());
                     }
                     cJSON* t = cJSON_GetObjectItem(root, "time");
-                    if (t && cJSON_IsString(t)) {
+                    if (t != nullptr && cJSON_IsString(t) && mon_time_label_ != nullptr) {
                         std::string s = "刷新: ";
                         s += t->valuestring;
                         lv_label_set_text(mon_time_label_, s.c_str());
